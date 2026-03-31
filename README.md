@@ -18,4 +18,4 @@ Rebol 3.21.12 or later.
 
 ## License
 
-MIT
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/Oldes/Rebol-Console/blob/main/LICENSE) file for details.

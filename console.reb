@@ -6,7 +6,7 @@ Rebol [
 	Version: 0.1.0
 	Author: [@Oldes @PCarlsson @Rebolek]
 	Home:    https://github.com/Oldes/Rebol-Console
-	Rights:  http://opensource.org/licenses/Apache-2.0
+	License: MIT
 	Purpose: {A lightweight, feature-complete interactive REPL with line editing, history, and tab completion, written in pure Rebol.}
 	TODO: {
 		* Better `complete-input`
