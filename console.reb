@@ -2,8 +2,8 @@ Rebol [
 	Title:  "Rebol Console"
 	Type:    module
 	Name:    console
-	Date:    31-Mar-2026
-	Version: 0.1.0
+	Date:    1-Apr-2026
+	Version: 0.1.1
 	Author: [@Oldes @PCarlsson @Rebolek]
 	Home:    https://github.com/Oldes/Rebol-Console
 	License: MIT
@@ -155,6 +155,14 @@ new-console: function/with [
 			pos: tail line
 			col: line/width
 		]
+		skip-to-prev-delimiter: does [
+			while [ find delimiters pos/-1 ][ skip-back ]
+			until [ skip-back any [head? pos  find delimiters pos/-1] ]
+		]
+		skip-to-next-delimiter: does [
+			while [ find delimiters pos/1 ][ skip-next ]
+			until [ skip-next any [tail? pos  find delimiters pos/1] ]
+		]
 		prompt-width: function/with [][
 			either prev-prompt = prompt [ width ][
 				tmp: sys/remove-ansi copy prev-prompt: prompt
@@ -177,15 +185,30 @@ new-console: function/with [
 				#"^~"
 				#"^H" [
 					unless head? pos [
-						skip-to col: col - pos/-1/width
-						pos: remove back pos
+						either system/state/control? [
+							;; delete to the previous delimiter
+							tmp: pos
+							skip-to-prev-delimiter
+							remove/part pos tmp
+						][	;; delete previous char
+							col: col - pos/-1/width
+							pos: remove back pos
+						]
+						skip-to col
 						emit ["^[[K" pos]
 						if tail? pos [prev-col: col]
 					]
 				]
 				delete [
 					unless tail? pos [
-						pos: remove pos
+						either system/state/control? [
+							tmp: pos
+							skip-to-next-delimiter
+							pos: remove/part tmp pos
+							col: prev-col
+						][	;; delete following char
+							pos: remove pos
+						]
 						emit ["^[[K" pos]
 						prev-col: none ;; force cursor position refresh
 					]
@@ -285,30 +308,16 @@ new-console: function/with [
 					unless head? pos [
 						either system/state/control? [
 							;; Skip all delimiters backwards.
-							while [ find delimiters pos/-1 ][ skip-back ]
-							until [
-								skip-back
-								any [
-									head? pos
-									find delimiters pos/-1
-								]
-							]
-						][ skip-back ]
+							skip-to-prev-delimiter
+						][	skip-back ]
 					]
 				]
 				right [
 					unless tail? pos [
 						either system/state/control? [
 							;; Skip all delimiters forward
-							while [ find delimiters pos/1 ][ skip-next ]
-							until [
-								skip-next
-								any [
-									tail? pos
-									find delimiters pos/1
-								]
-							]
-						][ skip-next ]
+							skip-to-next-delimiter
+						][	skip-next ]
 					]
 				]
 				home [
