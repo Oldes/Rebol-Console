@@ -17,7 +17,12 @@ Rebol [
 ]
 
 delimiters: charset { /%[({})];:"}
-clear-line: "^[[G^[[K"
+clear-line:  "^[[G^[[K"
+save-cur:    "^[[s"
+rest-cur:    "^[[u"
+move-up:     "^[[1A"
+highlight:   "^[[7m"
+reset-style: "^[[m"
 prompt-counter: #"0"
 ;; Console's state template.
 state: context [
@@ -334,8 +339,26 @@ new-console: function/with [
 					prin clear-line
 					break
 				]
+				;- CTRL+A - move to start
+				#"^A" [
+					emit "^[[4G"
+					pos: head line
+					col: 0
+				]
+				;- CTRL+E - move to end
+				#"^E" [
+					skip-to-end
+					skip-to col
+				]
+				;- CTRL+U - clear line
+				#"^U" [
+					pos: clear line
+					col: prev-col: 0
+					emit "^[[4G"
+					emit "^[[K"
+				]
 				;- escape          
-				#"^[" [
+				#"^[" escape [
 					unless empty? line [
 						emit [LF as-purple"(escape)" LF prompt]
 						pos: clear line
@@ -344,7 +367,7 @@ new-console: function/with [
 					]
 				]
 				;- TAB             
-				#"^-" [
+				#"^-" backtab [
 					;; completion only if key-time is high
 					either 0:0:0.01 > (stats/timer - time) [
 						pos: insert pos "  "
@@ -371,7 +394,10 @@ new-console: function/with [
 							]
 							set [start-part: best-matches:] tab-data
 							if empty? best-matches [ continue ]
-							either all [system/state/shift? not single? best-matches] [
+							either any [
+								all [system/state/shift? not single? best-matches]
+								key = 'backtab
+							] [
 								;; SHIFT+TAB — show all matches
 								emit [clear-line mold best-matches]
 								emit [LF prompt line]
