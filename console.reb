@@ -3,7 +3,7 @@ Rebol [
 	Type:    module
 	Name:    console
 	Date:    1-Apr-2026
-	Version: 0.1.1
+	Version: 0.1.2
 	Author: [@Oldes @PCarlsson @Rebolek]
 	Home:    https://github.com/Oldes/Rebol-Console
 	License: MIT
@@ -12,7 +12,6 @@ Rebol [
 		* Better `complete-input`
 		* Multiline input
 		* Treat entire grapheme clusters as single units, e.g. 🏳️‍🌈
-		* Use cyclic completion (print possible matches only with SHIFT+TAB)
 	}
 	Needs: 3.21.12
 	Exports: [new-console]
@@ -32,6 +31,11 @@ state: context [
 	key:        none     ;; current key
 	eval-ctx:   none     ;; used to hold per/session evaluation context
 	col: 0
+	tab-index: 0
+	tab-col: 0
+	tab-input: none
+	tab-match: none
+	tab-data:  none
 ]
 
 ;; Object/function completion support
@@ -114,7 +118,7 @@ scan-context: function [
 complete-input: function [
 	input   [string!] "Current line to be completed"
 	/with ctx [object!]
-	return: [block!] "[matching-part best-matches]"
+	return: [block!] "[start-part matching-part best-matches]"
 ][
 	part: any [
 		find/last/tail input SP
@@ -187,7 +191,7 @@ complete-input: function [
 			]
 		]
 	]
-	reduce [matching-part best-matches]
+	reduce [part matching-part best-matches]
 ]
 
 ;; Main function.
@@ -258,6 +262,10 @@ new-console: function/with [
 		][  ;; cache previous prompt width
 			prev-prompt: none width: 0
 		]
+		reset-tab: does [
+			tab-match: tab-input: none
+			tab-col: tab-index: 0
+		]
 
 		forever [
 			time: stats/timer
@@ -284,6 +292,7 @@ new-console: function/with [
 						skip-to col
 						emit ["^[[K" pos]
 						if tail? pos [prev-col: col]
+						reset-tab
 					]
 				]
 				delete [
@@ -298,6 +307,7 @@ new-console: function/with [
 						]
 						emit ["^[[K" pos]
 						prev-col: none ;; force cursor position refresh
+						reset-tab
 					]
 				]
 				;- ENTER          
@@ -332,6 +342,7 @@ new-console: function/with [
 						]
 					]
 					emit [clear-line prompt]
+					reset-tab
 				]
 				;- CTRL+C          
 				#"^C" [
@@ -344,6 +355,7 @@ new-console: function/with [
 						emit [LF as-purple"(escape)" LF prompt]
 						pos: clear line
 						col: prev-col: 0
+						reset-tab
 					]
 				]
 				;- TAB             
@@ -355,18 +367,56 @@ new-console: function/with [
 						col: col + 2
 					][
 						if tail? pos [
-							set [matching-part: best-matches:] complete-input/with line eval-ctx
-							if matching-part [
-								append pos matching-part
-								emit matching-part
+							if tab-match [
+								loop tab-match/length [
+									col: col - pos/-1/width
+									pos: remove back pos
+								]
 							]
-							unless empty? best-matches [
-								;if system/state/shift? [
-									emit [clear-line mold best-matches]
-									emit [LF prompt line]
-								;]
+							;print [LF mold tab-input mold line]
+							if any [
+								not tab-match
+								tab-input != line
+							][
+								tab-index: 0
+								tab-match: none
+								tab-input: line
+								tab-data: complete-input/with line eval-ctx
+								tab-col: col
 							]
-							skip-to-end
+							set [start-part: matching-part: best-matches:] tab-data
+							case [
+								;; SHIFT+TAB — show all matches
+								system/state/shift? [
+									unless empty? best-matches [
+										emit [clear-line mold best-matches]
+										emit [LF prompt line]
+										skip-to-end
+									]
+									;; Reset cycle on SHIFT+TAB
+									tab-index: 0
+								]
+								;; TAB with a direct match
+								matching-part [
+									append pos matching-part
+									emit matching-part
+									skip-to-end
+									tab-index: 0
+								]
+								;; TAB cycling through matches
+								not empty? best-matches [
+									;; Strip previous cycled match if any
+									if tab-col > 0 [
+										skip-to tab-col
+										emit "^[[K"
+									]
+									tab-index: 1 + mod tab-index length? best-matches
+									tab-match: find/match/tail best-matches/:tab-index start-part
+									append pos tab-match
+									emit pos
+									skip-to-end
+								]
+							]
 						]
 					]
 				]
@@ -379,6 +429,7 @@ new-console: function/with [
 						emit line
 						skip-to-end
 						prev-col: col
+						reset-tab
 					]
 				]
 				down [
@@ -389,6 +440,7 @@ new-console: function/with [
 						emit line
 						skip-to-end
 						prev-col: col
+						reset-tab
 					]
 				]
 				left [
@@ -423,6 +475,7 @@ new-console: function/with [
 					emit back pos: insert pos key
 					col: col + key/width
 					if tail? pos [prev-col: col]
+					reset-tab
 				]
 			]
 			;; Move cursor only if really changed its position.
