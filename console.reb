@@ -104,7 +104,7 @@ scan-context: function [
 							result: get to path! load path
 							case [
 								any-object? result [ form-all words-of result ]
-								block? result [ rejoin ["1 - " length? result ] ]
+							;	block? result [ rejoin ["1 - " length? result ] ]
 								'else ["???"]
 							]
 						]
@@ -115,7 +115,11 @@ scan-context: function [
 							] [
 								; partial word from subobject
 								partial: take/last path
-								result: form-all words-of get to path! load path
+								result: either single? path [
+									form-all words-of get load path/1
+								] [
+									form-all words-of get to path! load path
+								]
 								filter-matches result partial
 							]
 						]
