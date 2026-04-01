@@ -3,13 +3,12 @@ Rebol [
 	Type:    module
 	Name:    console
 	Date:    1-Apr-2026
-	Version: 0.1.3
+	Version: 0.2.0
 	Author: [@Oldes @PCarlsson @Rebolek]
 	Home:    https://github.com/Oldes/Rebol-Console
 	License: MIT
 	Purpose: {A lightweight, feature-complete interactive REPL with line editing, history, and tab completion, written in pure Rebol.}
 	TODO: {
-		* Better `complete-input`
 		* Multiline input
 		* Treat entire grapheme clusters as single units, e.g. 🏳️‍🌈
 	}
@@ -148,7 +147,7 @@ complete-input: function [
 			best-matches: copy []
 			foreach file files [
 				if parse file [part to end][
-					append best-matches file
+					append best-matches to string! file
 				]
 			]
 		]
@@ -156,7 +155,7 @@ complete-input: function [
 			best-matches: any [
 				scan-context system/contexts/sys part
 				scan-context system/contexts/lib part
-				scan-context system/contexts/user part
+				scan-context any [ctx system/contexts/user] part
 			]
 		]
 		not empty? part [ ; Word completion
@@ -177,7 +176,7 @@ complete-input: function [
 			]
 		]
 	]
-	reduce [part best-matches]
+	reduce [as string! part best-matches]
 ]
 
 ;; Main function.
@@ -386,7 +385,10 @@ new-console: function/with [
 									emit "^[[K"
 								]
 								tab-index: 1 + mod tab-index length? best-matches
-								tab-match: find/match/tail best-matches/:tab-index start-part
+
+								tab-match: either #"/" == last start-part [
+									best-matches/:tab-index
+								][	find/match/tail best-matches/:tab-index start-part ]
 								append pos tab-match
 								emit pos
 								skip-to-end
