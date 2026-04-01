@@ -3,7 +3,7 @@ Rebol [
 	Type:    module
 	Name:    console
 	Date:    1-Apr-2026
-	Version: 0.1.2
+	Version: 0.1.3
 	Author: [@Oldes @PCarlsson @Rebolek]
 	Home:    https://github.com/Oldes/Rebol-Console
 	License: MIT
@@ -32,16 +32,16 @@ state: context [
 	eval-ctx:   none     ;; used to hold per/session evaluation context
 	col: 0
 	tab-index: 0
-	tab-col: 0
+	tab-col:   0
 	tab-input: none
 	tab-match: none
 	tab-data:  none
 ]
 ;; Input completion function.
 complete-input: function [
-	input   [string!] "Current line to be completed"
-	/with ctx [object!]
-	return: [block!] "[start-part matching-part best-matches]"
+	input     [string!] "Current line to be completed"
+	/with ctx [object!] "Optional context to search words instead of the user's context."
+	return:   [block! ] "[start-part best-matches]"
 ][
 	part: any [
 		find/last/tail input SP
@@ -52,34 +52,10 @@ complete-input: function [
 			part: as file! next part
 			path-parts: split-path part
 			files: sort read path-parts/1
-			either matching-part: did find files part [
-				matching-part: SP
-			][
-				best-matches: clear []
-				foreach file files [
-					if parse file [part to end][
-						append best-matches file
-					]
-				]
-				either single? best-matches [
-					matching-part: skip best-matches/1 length? part
-				][
-					min-length: length? best-matches/1
-					foreach match next best-matches [
-						min-length: min min-length length? match
-					]
-					if match-count: catch [
-						repeat char-count min-length [
-							char: best-matches/1/:char-count
-							foreach word best-matches [
-								if char != word/:char-count [
-									throw char-count - 1
-								]
-							]
-						]
-					][
-						matching-part: skip copy/part best-matches/1 match-count length? part
-					]
+			best-matches: copy []
+			foreach file files [
+				if parse file [part to end][
+					append best-matches file
 				]
 			]
 		]
@@ -88,23 +64,15 @@ complete-input: function [
 			all-words: sort union words-of system/contexts/lib words-of any [ctx system/contexts/user]
 			forall all-words [all-words/1: to string! all-words/1]
 
-			either matching-part: did find all-words part [
-				matching-part: SP
-			][
-				best-matches: clear []
-				foreach word all-words [
-					if parse word [ part to end ] [
-						append best-matches word
-					]
-				]
-				if single? best-matches [
-					matching-part: skip take best-matches length? part
-					append matching-part SP
+			best-matches: copy []
+			foreach word all-words [
+				if parse word [ part to end ] [
+					append best-matches word
 				]
 			]
 		]
 	]
-	reduce [part matching-part best-matches]
+	reduce [part best-matches]
 ]
 
 ;; Main function.
@@ -286,7 +254,6 @@ new-console: function/with [
 									pos: remove back pos
 								]
 							]
-							;print [LF mold tab-input mold line]
 							if any [
 								not tab-match
 								tab-input != line
@@ -294,41 +261,30 @@ new-console: function/with [
 								tab-index: 0
 								tab-match: none
 								tab-input: line
+								tab-col:   col
 								tab-data: complete-input/with line eval-ctx
-								tab-col: col
+								
 							]
-							set [start-part: matching-part: best-matches:] tab-data
-							case [
+							set [start-part: best-matches:] tab-data
+							if empty? best-matches [ continue ]
+							either all [system/state/shift? not single? best-matches] [
 								;; SHIFT+TAB — show all matches
-								system/state/shift? [
-									unless empty? best-matches [
-										emit [clear-line mold best-matches]
-										emit [LF prompt line]
-										skip-to-end
-									]
-									;; Reset cycle on SHIFT+TAB
-									tab-index: 0
+								emit [clear-line mold best-matches]
+								emit [LF prompt line]
+								skip-to-end
+								;; Reset cycle on SHIFT+TAB
+								tab-index: 0 tab-match: none
+							][	;; TAB cycling through matches
+								;; Strip previous cycled match if any
+								if tab-col > 0 [
+									skip-to tab-col
+									emit "^[[K"
 								]
-								;; TAB with a direct match
-								matching-part [
-									append pos matching-part
-									emit matching-part
-									skip-to-end
-									tab-index: 0
-								]
-								;; TAB cycling through matches
-								not empty? best-matches [
-									;; Strip previous cycled match if any
-									if tab-col > 0 [
-										skip-to tab-col
-										emit "^[[K"
-									]
-									tab-index: 1 + mod tab-index length? best-matches
-									tab-match: find/match/tail best-matches/:tab-index start-part
-									append pos tab-match
-									emit pos
-									skip-to-end
-								]
+								tab-index: 1 + mod tab-index length? best-matches
+								tab-match: find/match/tail best-matches/:tab-index start-part
+								append pos tab-match
+								emit pos
+								skip-to-end
 							]
 						]
 					]
