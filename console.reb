@@ -21,6 +21,8 @@ clear-line:  "^[[G^[[K"
 save-cur:    "^[[s"
 rest-cur:    "^[[u"
 move-up:     "^[[1A"
+move-down:   "^[[1B"
+move-start:  "^[[G"
 highlight:   "^[[7m"
 reset-style: "^[[m"
 prompt-counter: #"0"
@@ -256,6 +258,7 @@ new-console: function/with [
 			tab-match: tab-input: none
 			tab-col: tab-index: 0
 		]
+		tab-help?: false
 
 		forever [
 			time: stats/timer
@@ -319,6 +322,12 @@ new-console: function/with [
 						]
 						pos: clear line
 						col: prev-col: 0
+			if tab-help? [
+				emit save-cur
+				emit clear-line
+				emit rest-cur
+				tab-help?: false
+			]
 						case [
 							unset? :res [] ;; ignore
 							error? :res [
@@ -406,15 +415,38 @@ new-console: function/with [
 								tab-index: 0 tab-match: none
 							][	;; TAB cycling through matches
 								;; Strip previous cycled match if any
-								if tab-col > 0 [
-									skip-to tab-col
-									emit "^[[K"
-								]
 								tab-index: 1 + mod tab-index length? best-matches
 
 								tab-match: either #"/" == last start-part [
 									best-matches/:tab-index
 								][	find/match/tail best-matches/:tab-index start-part ]
+								; on first <TAB> press, add help line
+								if tab-index = 1 [
+									tab-help?: true
+									emit LF
+									emit move-up
+								]
+								; on all <TAB> presses, show help
+								emit save-cur
+								emit move-down
+								emit move-start
+
+								repeat i length? best-matches [
+									either i = tab-index [
+										emit highlight
+										emit best-matches/:i
+										emit reset-style
+									] [
+										emit best-matches/:i
+									]
+									emit space
+								]
+								emit rest-cur
+								; now complete on edit line
+								if tab-col > 0 [
+									skip-to tab-col
+									emit "^[[K"
+								]
 								append pos tab-match
 								emit pos
 								skip-to-end
