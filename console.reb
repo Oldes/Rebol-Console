@@ -3,13 +3,12 @@ Rebol [
 	Type:    module
 	Name:    console
 	Date:    1-Apr-2026
-	Version: 0.2.0
+	Version: 0.3.0
 	Author: [@Oldes @PCarlsson @Rebolek]
 	Home:    https://github.com/Oldes/Rebol-Console
 	License: MIT
 	Purpose: {A lightweight, feature-complete interactive REPL with line editing, history, and tab completion, written in pure Rebol.}
 	TODO: {
-		* Multiline input
 		* Treat entire grapheme clusters as single units, e.g. 🏳️‍🌈
 	}
 	Needs: 3.21.12
@@ -17,7 +16,7 @@ Rebol [
 ]
 
 delimiters: charset { /%[({})];:"}
-clear-line: "^[[G^[[K"
+clear-line: "^M^[[K"     ;; go to line start, clear to its end
 prompt-counter: #"0"
 ;; Console's state template.
 state: context [
@@ -35,6 +34,9 @@ state: context [
 	tab-line:   none     ;; line content at the time TAB was pressed, used to detect changes
 	tab-match:  none     ;; currently inserted completion
 	tab-result: none     ;; cached result of complete-input [start matches]
+	multiline:  none     ;; block of lines
+	ml-prompt:  none     ;; stored original prompt while inside multiline mode
+	ml-type:    none     ;; current bracket type
 ]
 
 ;; Word completion support
@@ -254,6 +256,10 @@ new-console: function/with [
 			tab-match: tab-line: none
 			tab-col: tab-index: 0
 		]
+		reset-multiline: does [
+			multiline: none
+			prompt: ml-prompt
+		]
 
 		forever [
 			clear buffer
@@ -295,34 +301,61 @@ new-console: function/with [
 				]
 				;- ENTER          
 				#"^M" [
-					unless empty? line [
-						prin LF
-						unless same? line history/1 [
-							insert history copy line
-							history-pos: 0
-						]
-						code: try [transcode line]
-						either error? code [
-							;@@ TODO: handle multiline input here
-							res: code
+					if empty? line [
+						prin ajoin [unless multiline [clear-line] LF prompt]
+						continue
+					]
+					unless same? line history/1 [
+						insert history copy line
+						history-pos: 0
+					]
+					either multiline [
+						code: try [transcode ajoin [ajoin/with multiline LF LF line]]
+					][	code: try [transcode line]]
+
+					either error? code [
+						;@@ Does not handle un-balanced pairs like: "[)]" !
+						if any [
+							all [code/id = 'missing code/arg2 = "]" ml-type: "["]
+							all [code/id = 'missing code/arg2 = ")" ml-type: "("]
+							all [code/id = 'invalid code/arg2 = "{" ml-type: "{"]
 						][
-							code: bind/new/set code eval-ctx
-							code: bind code system/contexts/lib
-							set/any 'res try/all code
+							unless multiline [
+								multiline: clear []
+								ml-prompt: :prompt  ;; store original prompt
+								prompt: as-purple append/dup clear "" SP max 2 prompt-width
+							]
+							change back find/last prompt " "  ml-type
+							append multiline copy line
+							pos: clear line
+							emit [LF prompt]
+							col: prev-col: 0
+							prin buffer
+							continue
 						]
-						pos: clear line
-						col: prev-col: 0
-						case [
-							unset? :res [] ;; ignore
-							error? :res [
-								foreach line split-lines form :res [
-									emit as-purple line
-									emit LF
-								]
+						prin LF
+						reset-multiline
+						res: code
+					][
+						prin LF
+						if multiline [ reset-multiline ]
+						code: bind/new/set code eval-ctx
+						code: bind code system/contexts/lib
+						set/any 'res try/all code
+					]
+					
+					pos: clear line
+					col: prev-col: 0
+					case [
+						unset? :res [] ;; ignore
+						error? :res [
+							foreach line split-lines form :res [
+								emit as-purple line
 								emit LF
 							]
-							'else [emit [as-green "== " mold res LF]]
+							emit LF
 						]
+						'else [emit [as-green "== " mold res LF]]
 					]
 					emit [clear-line prompt]
 					reset-tab
@@ -334,6 +367,7 @@ new-console: function/with [
 				]
 				;- escape          
 				#"^[" [
+					if multiline [ reset-multiline append line " " ]
 					unless empty? line [
 						emit [LF as-purple"(escape)" LF prompt]
 						pos: clear line
