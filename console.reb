@@ -12,9 +12,97 @@ Rebol [
 		* Treat entire grapheme clusters as single units, e.g. 🏳️‍🌈
 	}
 	Needs: 3.21.12
-	Exports: [new-console]
+	Exports: [new-console tui]
 ]
 
+tui: function [dialect [block!] /local value] [
+	csi: "^[["
+	out: clear ""
+	value: 1
+	size: as-pair
+		query system/ports/output 'window-cols
+		query system/ports/output 'window-rows
+	colors: [black red green yellow blue magenta cyan white]
+	get-color: func [value] [
+		if word? value [value: -1 + index? find colors value]
+		value
+	]
+	emit: func [value /csi] [
+		value: head insert clear [] value
+		if csi [insert value "^[["] 
+		repend out value
+	]
+	movement: [
+		(value: 1)
+		'up opt [set value integer!] (emit/csi [value #"A"])
+	|	'down opt [set value integer!] (emit/csi [value #"B"])
+	|	'right opt [set value integer!] (emit/csi [value #"C"])
+	|	'left opt [set value integer!] (emit/csi [value #"D"])
+	|	'col opt [set value integer!] (emit/csi [value #"G"])
+	]
+	cursor: [
+		'save (emit/csi #"s")
+	|	'restore (emit/csi #"u")
+	]
+	colors-rule: ['black | 'red | 'green | 'yellow | 'blue | 'magenta | 'cyan | 'white]
+	styling: [
+		'reset  (emit/csi "0m")
+	|	'bold   (emit/csi "1m")
+	|	'invert (emit/csi "7m")
+	|	opt 'fg set value [integer! | colors-rule] (emit/csi ["38;5;" get-color value "m"])
+	|	'bg set value [integer! | colors-rule] (emit/csi ["48;5;" get-color value "m"])
+	]
+	lines: [
+		'hline set value integer! (emit array/initial value #"-")
+	|	'vline set value integer! (loop value [emit #"|" emit/csi #"B" emit/csi #"D"])
+	]
+	boxes: [
+		'box set value pair! (
+			emit/csi #"s" ; save
+			emit #"+"
+			emit array/initial (to integer! value/x) - 2 #"-"
+			emit #"+"
+			loop value/y - 2 [
+				emit/csi #"B"
+				emit/csi [to integer! value/x #"D"]
+				emit #"|" 
+				emit array/initial (to integer! value/x) - 2 #" "
+				emit #"|"
+			]
+			emit/csi #"B"
+			emit/csi [to integer! value #"D"]
+			emit #"+"
+			emit array/initial (to integer! value/x) - 2 #"-"
+			emit #"+"
+			emit/csi "0m" ; reset style
+		)
+	]
+	scrolling: [
+		'scroll [
+			(value: 1)
+			'up opt [set value integer!] (emit/csi [value #"S"])
+		|	'down opt [set value integer!] (emit/csi [value #"T"])
+		]
+	]
+	clearing: [
+			['cls  | 'clear 'screen] (emit/csi "2J")
+		|	'clear 'line (emit/csi "2K")
+	]
+	parse dialect [
+		some [
+			set value pair! (emit/csi [to integer! value/y #";" to integer! value/x #"H"])
+		|	movement
+		|	cursor
+		|	styling
+		|	lines
+		|	boxes
+		|	scrolling
+		|	clearing
+		|	set value string! (emit value)
+		]
+	]
+	out
+]
 delimiters: charset { /%[({})];:"}
 clear-line:  "^[[G^[[K"  ;; go to line start, clear to its end
 save-cur:    "^[[s"
@@ -319,6 +407,21 @@ new-console: function/with [
 		][  ;; cache previous prompt width
 			prev-prompt: none width: 0
 		]
+		get-suggestions: function [matches] [
+			match-lines: clear []
+			line: clear ""
+			foreach match matches [
+				repend line [match space]
+				if (length? line) > term-width [
+					clear skip tail line negate 1 + length? match
+					append match-lines copy line
+					clear line
+					repend line [match space]
+				]
+			]
+			append match-lines copy line
+			match-lines
+		]
 		reset-tab: does [
 			tab-match: tab-line: none
 			tab-col: tab-index: 0
@@ -347,6 +450,30 @@ new-console: function/with [
 			prev-col: col
 			term-width: query system/ports/output 'window-cols ; it's in loop, so it's resizing aware
 			time: stats/timer
+							emit tui compose [
+								save
+								0x0
+								bg blue
+								"matches: "
+								bold white (form length? matches)
+								" "
+								reset
+								bg blue
+								" index: "
+								bold white (form tab-index)
+								" "
+							;	(matches/:tab-index)
+								black
+							;	(copy/part form at matches tab-index 20)
+								"..."
+								bg yellow
+								"pos:" bold (mold pos)
+								reset
+								bg yellow
+								"col:" bold (mold col)
+								reset
+								restore
+							]
 			switch/default key: read-key [
 				;- DEL/Backspace  
 				#"^~"
@@ -497,7 +624,8 @@ new-console: function/with [
 								tab-line:  line
 								tab-col:   col
 								tab-result: complete-input/with line eval-ctx
-								
+								;; prepare suggestions
+								match-lines: get-suggestions second tab-result
 							]
 							set [start: matches:] tab-result
 							if empty? matches [ continue ]
@@ -507,6 +635,8 @@ new-console: function/with [
 								skip-to tab-col
 								emit "^[[K"
 							]
+							
+							; rotate left/right
 							either key = 'backtab [
 								if zero? tab-index: tab-index - 1 [
 									tab-index: length? matches
@@ -514,7 +644,6 @@ new-console: function/with [
 							][
 								tab-index: 1 + mod tab-index length? matches
 							]
-
 							tab-match: either find start #"/" [
 								remove next find/last start #"/"
 								matches/:tab-index
@@ -524,50 +653,60 @@ new-console: function/with [
 							if not tab-help-line? [
 								tab-help?: true
 								tab-help-line?: true
-								emit LF
-								emit move-up
+								emit tui [scroll up up]
 							]
+
+							; prepare matches with highlighted current match
+							current-line: none
+							foreach line match-lines [
+								if mark: find line join tab-match space [
+									current-line: copy line
+									break
+								]
+							]
+							insert mark: back at current-line index? mark tui [invert]
+							insert find mark space tui [reset]
 							; on all <TAB> presses, show help
-							emit save-cur
-							emit move-down
-							emit move-start
+							emit tui compose [
+								save
+								down
+								clear line
+								col 1
+								(head current-line)
+								restore
+							]
 
-							width: 0
-
-							repeat i length? matches [
-								idx: i + tab-offset
-								width: width + 1 + length? matches/:idx
-								if max-tab = tab-index [
-									tab-offset: tab-index - 1
-									tab-dirty?: true
-									break
-								]
-								if width > term-width [
-									max-tab: idx
-									break
-								]
-								either idx = tab-index [
-									emit highlight
-									emit matches/:idx
-									emit reset-style
-								] [
-									emit matches/:idx
-								]
-								emit space
-							]
-							emit rest-cur
-							if tab-dirty? [
-								emit clear-line
-								tab-dirty?: false
-							]
-							; now complete on edit line
-							if tab-col > 0 [
-								skip-to tab-col
-								emit "^[[K"
-							]
+							tab-match: find/match/tail matches/:tab-index start
 							append pos tab-match
 							emit pos
 							skip-to-end
+
+							emit tui compose [
+								save
+								0x0
+								bg blue
+								"matches: "
+								bold white (form length? matches)
+								" "
+								reset
+								bg blue
+								" index: "
+								bold white (form tab-index)
+								" "
+								(matches/:tab-index)
+								black
+								(copy/part form at matches tab-index 20)
+								"..."
+								bg yellow
+								"pos:" bold (mold pos)
+								reset
+								bg yellow
+								"col:" bold (mold col)
+								reset
+								restore
+							]
+
+
 						]
 					]
 				]
