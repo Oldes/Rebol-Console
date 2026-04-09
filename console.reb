@@ -16,7 +16,9 @@ Rebol [
 ]
 
 delimiters: charset { /%[({})];:"}
-clear-line: "^M^[[K"     ;; go to line start, clear to its end
+clear-line:    "^M^[[K"  ;; go to line start, clear to its end
+clear-newline: "^/^[[K"  ;; go to new line and clear it (removes optional status line)
+
 prompt-counter: #"0"
 ;; Console's state template.
 state: context [
@@ -320,14 +322,26 @@ new-console: function/with [
 			prompt: ml-prompt
 		]
 
+		show-status: func[txt][
+			if block? txt [txt: reform txt]
+			prin ajoin [
+				"^/^[[K" ;= next line + clear to end
+				txt      ;= content to print
+				"^[[A"   ;= line up
+				"^[[" (prompt-width + col + 1) #"G" ;= goto column
+			]
+		]
+
 		catch/quit [ forever [
 			clear buffer
 			prev-col: col
 			time: stats/timer
-			switch/default key: read-key [
+			key: read-key
+			show-status ["key:" mold key "ctrl:" system/state/control? "shft:" system/state/shift?]
+			switch/default key [
 				;- DEL/Backspace  
-				#"^~"
-				#"^H" [
+				backspace
+				#"^~" #"^H" #"^(7F)" [
 					unless head? pos [
 						either system/state/control? [
 							;; delete to the previous delimiter
@@ -347,9 +361,10 @@ new-console: function/with [
 				delete [
 					unless tail? pos [
 						either system/state/control? [
-							tmp: pos
+							tmp: pos prev-col: col
 							skip-to-next-delimiter
 							pos: remove/part tmp pos
+							col: prev-col
 						][	;; delete following char
 							pos: remove pos
 						]
@@ -361,7 +376,7 @@ new-console: function/with [
 				;- ENTER          
 				#"^M" [
 					if empty? line [
-						prin ajoin [unless multiline [clear-line] LF prompt]
+						prin ajoin [unless multiline [clear-line] clear-newline prompt]
 						continue
 					]
 					unless same? line history/1 [
@@ -387,10 +402,10 @@ new-console: function/with [
 							prin buffer
 							continue
 						]
-						prin LF
+						prin clear-newline
 						reset-multiline
 					][
-						prin LF
+						prin clear-newline
 						if multiline [ reset-multiline ]
 						code: bind/new/set res eval-ctx
 						code: bind code system/contexts/lib
@@ -424,11 +439,10 @@ new-console: function/with [
 					print "^/[CTRL+C]"
 					break
 				]
-				;- escape          
-				#"^[" [
+				escape #"^[" [
 					if multiline [ reset-multiline append line " " ]
 					unless empty? line [
-						emit [LF as-purple"(escape)" LF prompt]
+						emit [clear-newline as-purple"(escape)" LF prompt]
 						pos: clear line
 						col: prev-col: 0
 						reset-tab
