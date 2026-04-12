@@ -2,8 +2,8 @@ Rebol [
 	Title:  "Rebol Console"
 	Type:    module
 	Name:    console
-	Date:    1-Apr-2026
-	Version: 0.3.0
+	Date:    11-Apr-2026
+	Version: 0.3.1
 	Author: [@Oldes @PCarlsson @Rebolek]
 	Home:    https://github.com/Oldes/Rebol-Console
 	License: MIT
@@ -11,8 +11,8 @@ Rebol [
 	TODO: {
 		* Treat entire grapheme clusters as single units, e.g. 🏳️‍🌈
 	}
-	Needs: 3.21.12
-	Exports: [new-console tui]
+	Needs: 3.21.13
+	Exports: [new-console]
 ]
 
 tui: function [dialect [block!] /local value] [
@@ -115,6 +115,12 @@ reset-style: "^[[m"
 prompt-counter: #"0"
 
 move-left-by: func [n] [rejoin ["^[[" n #"D"]]
+
+delimiters: charset { /%[({})];:"}
+clear-line:    "^M^[[K"  ;; go to line start, clear to its end
+clear-newline: "^/^[[K"  ;; go to new line and clear it (removes optional status line)
+
+prompt-counter: #"0"
 
 ;; Console's state template.
 state: context [
@@ -357,7 +363,10 @@ new-console: function/with [
 	]
 	ctx/eval-ctx: context [
 		new-console: :system/modules/console/new-console
+		debug?: off ;; console debugging output
 	]
+
+	system/state/quit?: false
 
 	;; Using bind/copy to be able start a console from another console
 	do bind/copy [
@@ -392,12 +401,20 @@ new-console: function/with [
 			col: line/width
 		]
 		skip-to-prev-delimiter: does [
-			while [ find delimiters pos/-1 ][ skip-back ]
-			until [ skip-back any [head? pos  find delimiters pos/-1] ]
+			;; skip any delimiters immediately to the left of `pos`
+			while [ all [not head? pos find delimiters pos/-1 ]][ skip-back ]
+			;; then keep going left until we hit the head or another delimiter
+			unless head? pos [
+				until [ skip-back any [head? pos  find delimiters pos/-1] ]
+			]
 		]
 		skip-to-next-delimiter: does [
-			while [ find delimiters pos/1 ][ skip-next ]
-			until [ skip-next any [tail? pos  find delimiters pos/1] ]
+			;; skip any delimiters immediately to the right of `pos`
+			while [ all [not tail? pos find delimiters pos/1 ]][ skip-next ]
+			;; then keep going right until we hit the tail or another delimiter
+			unless tail? pos [
+				until [ skip-next any [tail? pos  find delimiters pos/1] ]
+			]
 		]
 		prompt-width: function/with [][
 			either prev-prompt = prompt [ width ][
@@ -447,6 +464,23 @@ new-console: function/with [
 			prompt: ml-prompt
 		]
 
+		show-status: function [txt][
+			;; limit output to max line width...
+			max-cols: query system/ports/output 'window-cols 
+			txt: reform txt
+			if txt/length >= max-cols [ 
+				clear skip txt max-cols - 3
+				append txt "..."
+			]
+
+			prin ajoin [
+				"^/^[[K" ;= next line + clear to end
+				txt      ;= content to print
+				"^[[A"   ;= line up
+				"^[[" (prompt-width + col + 1) #"G" ;= goto column
+			]
+		]
+
 		catch/quit [ forever [
 			clear buffer
 			prev-col: col
@@ -477,9 +511,15 @@ new-console: function/with [
 								restore
 							]
 			switch/default key: read-key [
+			time: stats/timer
+			key: read-key
+			if eval-ctx/debug? [
+				show-status ["key:" mold key "ctrl:" system/state/control? "shft:" system/state/shift?]
+			]
+			switch/default key [
 				;- DEL/Backspace  
-				#"^~"
-				#"^H" [
+				backspace
+				#"^~" #"^H" #"^(7F)" [
 					unless head? pos [
 						either system/state/control? [
 							;; delete to the previous delimiter
@@ -499,9 +539,10 @@ new-console: function/with [
 				delete [
 					unless tail? pos [
 						either system/state/control? [
-							tmp: pos
+							tmp: pos prev-col: col
 							skip-to-next-delimiter
 							pos: remove/part tmp pos
+							col: prev-col
 						][	;; delete following char
 							pos: remove pos
 						]
@@ -513,7 +554,7 @@ new-console: function/with [
 				;- ENTER          
 				#"^M" [
 					if empty? line [
-						prin ajoin [unless multiline [clear-line] LF prompt]
+						prin ajoin [unless multiline [clear-line] clear-newline prompt]
 						continue
 					]
 					unless same? line history/1 [
@@ -539,15 +580,19 @@ new-console: function/with [
 							prin buffer
 							continue
 						]
-						prin LF
+						prin clear-newline
 						reset-multiline
 					][
-						prin LF
+						prin clear-newline
 						if multiline [ reset-multiline ]
 						code: bind/new/set res eval-ctx
 						code: bind code system/contexts/lib
 						set/any 'res try/all [
-							catch/quit code 
+							catch/quit code
+						]
+						if system/state/quit? [
+							system/state/quit?: false ;; quit only from this console
+							break
 						]
 					]
 
@@ -571,7 +616,7 @@ new-console: function/with [
 				]
 				;- CTRL+C          
 				#"^C" [
-					prin [clear-line "[CTRL+C]"]
+					print ajoin [clear-newline as-purple "(CTRL+C)"]
 					break
 				]
 				;- CTRL+A - move to start
@@ -593,10 +638,10 @@ new-console: function/with [
 					emit "^[[K"
 				]
 				;- escape          
-				#"^[" escape [
+				escape #"^[" [
 					if multiline [ reset-multiline append line " " ]
 					unless empty? line [
-						emit [LF as-purple"(escape)" LF prompt]
+						emit [clear-newline as-purple"(escape)" LF prompt]
 						pos: clear line
 						col: prev-col: 0
 						reset-tab

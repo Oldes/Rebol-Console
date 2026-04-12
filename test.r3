@@ -1,6 +1,6 @@
 Rebol [
 	Title: "Rebol Console Test"
-	Needs: 3.21.12
+	Needs: 3.21.13
 ]
 
 import %console.reb
