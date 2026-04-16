@@ -488,32 +488,6 @@ new-console: function/with [
 			clear buffer
 			prev-col: col
 			term-width: query system/ports/output 'window-cols ; it's in loop, so it's resizing aware
-							comment {
-							emit tui compose [
-								save
-								0x0
-								bg blue
-								"matches: "
-								bold white (form length? matches)
-								" "
-								reset
-								bg blue
-								" index: "
-								bold white (form tab-index)
-								" "
-							;	(matches/:tab-index)
-								black
-							;	(copy/part form at matches tab-index 20)
-								"..."
-								bg yellow
-								"pos:" bold (mold pos)
-								reset
-								bg yellow
-								"col:" bold (mold col)
-								reset
-								restore
-							]
-							}
 			time: stats/timer
 			key: read-key
 			if eval-ctx/debug? [
@@ -685,7 +659,6 @@ new-console: function/with [
 								skip-to tab-col
 								emit "^[[K"
 							]
-							
 							; rotate left/right
 							either key = 'backtab [
 								if zero? tab-index: tab-index - 1 [
@@ -714,47 +687,21 @@ new-console: function/with [
 									break
 								]
 							]
-							insert mark: back at current-line index? mark tui [invert]
-							insert find mark space tui [reset]
-							; on all <TAB> presses, show help
-							comment {
-							emit tui compose [
-								save
-								down
-								clear line
-								col 1
-								(head current-line)
-								restore
+							; go back to space or start so whole word is highlighted
+							either start-mark: find/reverse mark space [
+								start-mark: next start-mark
+							] [
+								start-mark: head mark
 							]
-							}
+							mark: start-mark
+							; insert highlight
+							insert mark: at current-line index? mark tui [invert]
+							insert find mark space tui [reset]
 							show-status head current-line
-
 							tab-match: find/match/tail matches/:tab-index start
 							append pos tab-match
 							emit pos
 							skip-to-end
-{
-							emit tui compose [
-								save
-								0x0 bg blue "matches: "
-								bold white (form length? matches) #" "
-								reset
-								bg blue " index: "
-								bold white (form tab-index) #" "
-								(matches/:tab-index)
-								black
-								(copy/part form at matches tab-index 20)
-								"..."
-								bg yellow
-								"pos:" bold (mold pos)
-								reset
-								bg yellow
-								"col:" bold (mold col)
-								reset
-								restore
-							]
-}
-
 						]
 					]
 				]
