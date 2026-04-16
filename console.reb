@@ -15,11 +15,115 @@ Rebol [
 	Exports: [new-console]
 ]
 
+tui: function [dialect [block!] /local value] [
+	csi: "^[["
+	out: clear ""
+	value: 1
+	size: as-pair
+		query system/ports/output 'window-cols
+		query system/ports/output 'window-rows
+	colors: [black red green yellow blue magenta cyan white]
+	get-color: func [value] [
+		if word? value [value: -1 + index? find colors value]
+		value
+	]
+	emit: func [value /csi] [
+		value: head insert clear [] value
+		if csi [insert value "^[["] 
+		repend out value
+	]
+	movement: [
+		(value: 1)
+		'up opt [set value integer!] (emit/csi [value #"A"])
+	|	'down opt [set value integer!] (emit/csi [value #"B"])
+	|	'right opt [set value integer!] (emit/csi [value #"C"])
+	|	'left opt [set value integer!] (emit/csi [value #"D"])
+	|	'col opt [set value integer!] (emit/csi [value #"G"])
+	]
+	cursor: [
+		'save (emit/csi #"s")
+	|	'restore (emit/csi #"u")
+	]
+	colors-rule: ['black | 'red | 'green | 'yellow | 'blue | 'magenta | 'cyan | 'white]
+	styling: [
+		'reset  (emit/csi "0m")
+	|	'bold   (emit/csi "1m")
+	|	'invert (emit/csi "7m")
+	|	opt 'fg set value [integer! | colors-rule] (emit/csi ["38;5;" get-color value "m"])
+	|	'bg set value [integer! | colors-rule] (emit/csi ["48;5;" get-color value "m"])
+	]
+	lines: [
+		'hline set value integer! (emit array/initial value #"-")
+	|	'vline set value integer! (loop value [emit #"|" emit/csi #"B" emit/csi #"D"])
+	]
+	boxes: [
+		'box set value pair! (
+			emit/csi #"s" ; save
+			emit #"+"
+			emit array/initial (to integer! value/x) - 2 #"-"
+			emit #"+"
+			loop value/y - 2 [
+				emit/csi #"B"
+				emit/csi [to integer! value/x #"D"]
+				emit #"|" 
+				emit array/initial (to integer! value/x) - 2 #" "
+				emit #"|"
+			]
+			emit/csi #"B"
+			emit/csi [to integer! value #"D"]
+			emit #"+"
+			emit array/initial (to integer! value/x) - 2 #"-"
+			emit #"+"
+			emit/csi "0m" ; reset style
+		)
+	]
+	scrolling: [
+		'scroll [
+			(value: 1)
+			'up opt [set value integer!] (emit/csi [value #"S"])
+		|	'down opt [set value integer!] (emit/csi [value #"T"])
+		]
+	]
+	clearing: [
+			['cls  | 'clear 'screen] (emit/csi "2J")
+		|	'clear 'line (emit/csi "2K")
+		|	'clear 'to 'end (emit/csi #"K")
+	]
+	parse dialect [
+		some [
+			set value pair! (emit/csi [to integer! value/y #";" to integer! value/x #"H"])
+		|	movement
+		|	cursor
+		|	styling
+		|	lines
+		|	boxes
+		|	scrolling
+		|	clearing
+		|	'newline (emit #"^/")
+		|	set value string! (emit value)
+		]
+	]
+	out
+]
+delimiters: charset { /%[({})];:"}
+clear-line:  "^[[G^[[K"  ;; go to line start, clear to its end
+save-cur:    "^[[s"
+rest-cur:    "^[[u"
+move-up:     "^[[1A"
+move-down:   "^[[1B"
+move-start:  "^[[G"
+highlight:   "^[[7m"
+reset-style: "^[[m"
+prompt-counter: #"0"
+
+move-left-by: func [n] [rejoin ["^[[" n #"D"]]
+
 delimiters: charset { /%[({})];:"}
 clear-line:    "^M^[[K"  ;; go to line start, clear to its end
 clear-newline: "^/^[[K"  ;; go to new line and clear it (removes optional status line)
 
 prompt-counter: #"0"
+
 ;; Console's state template.
 state: context [
 	prompt: as-red "## "
@@ -261,7 +365,7 @@ new-console: function/with [
 	]
 	ctx/eval-ctx: context [
 		new-console: :system/modules/console/new-console
-		debug?: off ;; console debugging output
+		debug?: on ;; console debugging output
 	]
 
 	system/state/quit?: false
@@ -322,9 +426,40 @@ new-console: function/with [
 		][  ;; cache previous prompt width
 			prev-prompt: none width: 0
 		]
+		get-suggestions: function [matches] [
+			match-lines: clear []
+			line: clear ""
+			foreach match matches [
+				repend line [match space]
+				if (length? line) > term-width [
+					clear skip tail line negate 1 + length? match
+					append match-lines copy line
+					clear line
+					repend line [match space]
+				]
+			]
+			append match-lines copy line
+			match-lines
+		]
 		reset-tab: does [
 			tab-match: tab-line: none
 			tab-col: tab-index: 0
+		]
+		tab-help-line?: false ; is tab help line added?
+		tab-help?: false      ; is tab help shown?
+		tab-offset: 0         ; how much is tab help shifted
+		max-tab: 0
+		tab-dirty?: false
+		clear-tab-help: does [
+			if tab-help? [
+				emit tui [
+					save
+					down
+					clear line
+					restore
+				]
+				tab-help?: false
+			]
 		]
 		reset-multiline: does [
 			multiline: none
@@ -336,25 +471,27 @@ new-console: function/with [
 			max-cols: query system/ports/output 'window-cols 
 			txt: reform txt
 			if txt/length >= max-cols [ 
-				clear skip txt max-cols - 3
-				append txt "..."
+				clear skip txt max-cols - 1
+				append txt "…"
 			]
 
-			prin ajoin [
-				"^/^[[K" ;= next line + clear to end
-				txt      ;= content to print
-				"^[[A"   ;= line up
-				"^[[" (prompt-width + col + 1) #"G" ;= goto column
+			prin tui compose [
+				newline
+				clear line
+				(txt)
+				up
+				col (prompt-width + col + 1)
 			]
 		]
 
 		catch/quit [ forever [
 			clear buffer
 			prev-col: col
+			term-width: query system/ports/output 'window-cols ; it's in loop, so it's resizing aware
 			time: stats/timer
 			key: read-key
 			if eval-ctx/debug? [
-				show-status ["key:" mold key "ctrl:" system/state/control? "shft:" system/state/shift?]
+				show-status ["key:" mold key "ctrl:" system/state/control? "shift:" system/state/shift?]
 			]
 			switch/default key [
 				;- DEL/Backspace  
@@ -435,9 +572,11 @@ new-console: function/with [
 							break
 						]
 					]
-					
+
 					pos: clear line
 					col: prev-col: 0
+					clear-tab-help
+					tab-help-line?: false
 					case [
 						unset? :res [] ;; ignore
 						error? :res [
@@ -457,6 +596,25 @@ new-console: function/with [
 					print ajoin [clear-newline as-purple "(CTRL+C)"]
 					break
 				]
+				;- CTRL+A - move to start
+				#"^A" [
+					emit "^[[4G"
+					pos: head line
+					col: 0
+				]
+				;- CTRL+E - move to end
+				#"^E" [
+					skip-to-end
+					skip-to col
+				]
+				;- CTRL+U - clear line
+				#"^U" [
+					pos: clear line
+					col: prev-col: 0
+					emit "^[[4G"
+					emit "^[[K"
+				]
+				;- escape          
 				escape #"^[" [
 					if multiline [ reset-multiline append line " " ]
 					unless empty? line [
@@ -490,31 +648,60 @@ new-console: function/with [
 								tab-line:  line
 								tab-col:   col
 								tab-result: complete-input/with line eval-ctx
-								
+								;; prepare suggestions
+								match-lines: get-suggestions second tab-result
 							]
 							set [start: matches:] tab-result
 							if empty? matches [ continue ]
-							either all [
-								any [key = 'backtab system/state/shift?]
-								not single? matches
-							][
-								;; SHIFT+TAB — show all matches
-								show-status mold matches
-								;; Reset cycle on SHIFT+TAB
-								tab-index: 0 tab-match: none
-							][	;; TAB cycling through matches
-								;; Strip previous cycled match if any
-								if tab-col > 0 [
-									skip-to tab-col
-									emit "^[[K"
-								]
-								tab-index: 1 + mod tab-index length? matches
-
-								tab-match: find/match/tail matches/:tab-index start
-								append pos tab-match
-								emit pos
-								skip-to-end
+							;; TAB cycles forward, SHIFT+TAB (backtab) cycles backward
+							;; Strip previous cycled match if any
+							if tab-col > 0 [
+								skip-to tab-col
+								emit "^[[K"
 							]
+							; rotate left/right
+							either key = 'backtab [
+								if zero? tab-index: tab-index - 1 [
+									tab-index: length? matches
+								]
+							][
+								tab-index: 1 + mod tab-index length? matches
+							]
+							tab-match: either find start #"/" [
+								remove next find/last start #"/"
+								matches/:tab-index
+							][	find/match/tail matches/:tab-index start ]
+
+							; on first tab/backtab press, add help line
+							if not tab-help-line? [
+								tab-help?: true
+								tab-help-line?: true
+								emit tui [scroll up up]
+							]
+
+							; prepare matches with highlighted current match
+							current-line: none
+							foreach line match-lines [
+								if mark: find line join tab-match space [
+									current-line: copy line
+									break
+								]
+							]
+							; go back to space or start so whole word is highlighted
+							either start-mark: find/reverse mark space [
+								start-mark: next start-mark
+							] [
+								start-mark: head mark
+							]
+							mark: start-mark
+							; insert highlight
+							insert mark: at current-line index? mark tui [invert]
+							insert find mark space tui [reset]
+							show-status head current-line
+							tab-match: find/match/tail matches/:tab-index start
+							append pos tab-match
+							emit pos
+							skip-to-end
 						]
 					]
 				]
@@ -566,7 +753,11 @@ new-console: function/with [
 					col: line/width
 				]
 			][
-				if all [char? key  key > 0#1F][
+				if #" " = key [clear-tab-help]
+				if all [
+					char? key
+					key > 0#1F
+				][
 					emit back pos: insert pos key
 					col: col + key/width
 					if tail? pos [prev-col: col]
