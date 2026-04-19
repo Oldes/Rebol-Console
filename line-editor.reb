@@ -1,23 +1,25 @@
 Rebol [
-    Title:   "Mini Console"
-    Purpose: {Console using reusable line editor}
+    Title:   "Line editor context"
+    Purpose: {Reusable line editor}
+    Name:    line-editor
     Version: 0.0.1
     Needs:   3.21.13
+    exports: [line-editor]
 ]
 
 line-editor: context [
 	prompt: "^[[1;31m## ^[[1;33m"
 	buffer: copy ""
-	line: pos: result: code: eval-ctx: _
+	line: pos: result: code: banner: _
 	prev-col: col: history-pos: 0
-	multiline: none
 	history: system/console/history
+	eval-ctx: context []
 
 	init: func [][
 		clear buffer
 		line: pos: clear ""
 		prev-col: col: 0
-		eval-ctx: context []
+		if string? :banner [print banner]
 		prin prompt
 	]
 
@@ -142,7 +144,7 @@ line-editor: context [
 		]
 		flush
 	]
-	on-enter: function [][
+	on-enter: does [
 		if empty? line [
 			prin ajoin [unless multiline [clear-line] clear-newline prompt]
 			exit
@@ -151,10 +153,9 @@ line-editor: context [
 			insert history copy line
 			history-pos: 0
 		]
-		prin LF
-		on-eval line
+		on-line
 	]
-	on-eval: func [line][
+	on-line: does [
 		result: try [transcode code: line]
 		prin clear-newline
 		;if multiline [ reset-multiline ]
@@ -165,11 +166,12 @@ line-editor: context [
 		]
 		if system/state/quit? [
 			system/state/quit?: false ;; quit only from this console
+			on-quit
 			break
 		]
 		on-result :result
 	]
-	on-result: func [result [any-type!]][
+	on-result: does [
 		pos: clear line
 		col: prev-col: 0
 		case [
@@ -183,6 +185,7 @@ line-editor: context [
 			]
 			'else [emit [as-green "== " mold :result LF]]
 		]
+		unset 'result
 		emit [clear-line prompt]
 		flush
 	]
@@ -198,6 +201,10 @@ line-editor: context [
 		emit skip pos: insert/dup pos SP 4 -4
 		col: col + 4
 		if tail? pos [prev-col: col]
+	]
+	on-quit: does [
+		emit [clear-line as-purple"(quit)"]
+		flush
 	]
 
 	;-- Private editor functions ---
@@ -247,7 +254,7 @@ line-editor: context [
 		;; Move cursor only if really changed its position.
 		if prev-col != col [skip-to col]
 		prin take/all buffer
-	]
+	]		
 
 	;---- Constants ----
 	clear-line:      "^M^[[K"            ;; go to line start, clear to its end
@@ -262,21 +269,13 @@ line-editor: context [
 	reset-style:     "^[[0m"             ;= tui [reset]
 
 	delimiters: charset { /%[({})];:"}
-]
 
-mini-console: func [/with spec [block!] /local editor][
-	editor: make line-editor spec
-	editor/init
-	forever [
-		editor/on-key read-key
-	]
-]
-
-mini-console/with [
-	prompt: as-red ">> "
-	on-tab: does [
-		emit skip pos: insert/dup pos SP 2 -2
-		col: col + 2
-		if tail? pos [prev-col: col]
+	;-- Multiline support ---
+	multiline:  _        ;; block of lines
+	ml-prompt:  _        ;; stored original prompt while inside multiline mode
+	ml-type:    _        ;; current bracket type
+	reset-multiline: does [
+		multiline: none
+		prompt: ml-prompt
 	]
 ]
