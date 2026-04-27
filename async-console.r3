@@ -9,8 +9,8 @@ Rebol [
 		* When using paste in this console, it processes all input as key presses, which is slow.
 		* Doesn't catch CTRL+C.
 	}
-	Version: 0.0.1
-    Needs:   3.21.13
+	Version: 0.1.0
+    Needs:   3.21.16
 ]
 
 import %line-editor.reb
@@ -18,7 +18,7 @@ import %line-editor.reb
 async-console: function [
 	/with spec [block!]
 ][
-	editor: make line-editor spec
+	editor: make line-editor! spec
 	editor/init
 
 	port: system/ports/input

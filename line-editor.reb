@@ -1,19 +1,24 @@
 Rebol [
-    Title:   "Line editor context"
-    Purpose: {Reusable line editor}
-    Name:    line-editor
-    Version: 0.0.1
-    Needs:   3.21.13
-    exports: [line-editor]
+	Title:   "Line editor context"
+	Purpose: {Reusable line editor}
+	Name:    line-editor
+	Version: 0.1.0
+	Date:    24-Apr-2026
+	Needs:   3.21.16
+	exports: [line-editor!]
 ]
 
-line-editor: context [
+line-editor!: context [
 	prompt: "^[[1;31m## ^[[1;33m"
+	result-limit: 500 ;; max length of the molded result output
 	buffer: copy ""
 	line: pos: result: code: banner: _
-	prev-col: col: history-pos: 0
-	history: system/console/history
+	time: 0:0
+	prev-col: col: 0
+	history: clear []
+	current-key: _
 	eval-ctx: context []
+	ansi: system/options/ansi
 
 	init: func [][
 		clear buffer
@@ -25,11 +30,13 @@ line-editor: context [
 
 	;-- Main callbacks ---
 	on-key: func[key][
+		current-key: key
 		prev-col: col
 		clear buffer
 		switch/default key [
-			#"^M" [on-enter]
-			;- DEL/Backspace  
+			#"^M"         [ on-enter  ]
+			#"^-" backtab [ on-tab    ]
+			#"^[" escape  [ on-escape ]
 			backspace #"^~" #"^H" #"^(7F)" [
 				unless head? pos [
 					either system/state/control? [
@@ -45,7 +52,6 @@ line-editor: context [
 					emit ["^[[K" pos]
 					if tail? pos [prev-col: col]
 				]
-				;reset-tab
 			]
 			delete [
 				unless tail? pos [
@@ -60,55 +66,38 @@ line-editor: context [
 					emit ["^[[K" pos]
 					prev-col: none ;; force cursor position refresh
 				]
-				;reset-tab
 			]
 			#"^C" [
-				print ajoin [clear-newline as-purple "(CTRL+C)"]
+				print ajoin [clear-newline ansi/magenta "(CTRL+C)"]
 				break
 			]
-			;- CTRL+A - move to start
-			#"^A" [
-				emit "^[[4G"
-				pos: head line
-				col: 0
-			]
-			;- CTRL+E - move to end
-			#"^E" [
-				skip-to-end
-				skip-to col
-			]
-			;- CTRL+U - clear line
-			#"^U" [
+			#"^U" [ ;= CTRL+U - clear line
 				pos: clear line
 				col: prev-col: 0
-				emit "^[[4G"
-				emit "^[[K"
+				emit [clear-line prompt]
 			]
-			;- escape          
-			escape #"^[" [ on-escape ]
-			;- TAB             
-			#"^-" backtab [ on-tab ]
-			;- Navigation      
+			#"^L" [ ;= CTRL-L - clear screen
+				col: prev-col: 0
+				emit [clear-screen clear-buffer prompt]
+			]
 			up [
-				if history-pos < length? history [
-					++ history-pos
+				either tail? history [ emit beep ][
 					emit [clear-line prompt ]
-					append clear line history/:history-pos
+					append clear line history/1
+					++ history
 					emit line
 					skip-to-end
 					prev-col: col
-					;reset-tab
 				]
 			]
 			down [
-				if history-pos > 1 [
-					-- history-pos
+				either head? history [ emit beep ][
+					-- history
 					emit [clear-line prompt ]
-					append clear line history/:history-pos
+					append clear line history/1
 					emit line
 					skip-to-end
 					prev-col: col
-					;reset-tab
 				]
 			]
 			left [
@@ -127,11 +116,11 @@ line-editor: context [
 					][	skip-next ]
 				]
 			]
-			home [
+			home #"^A" [
 				pos: head pos
 				col: 0
 			]
-			end [
+			end #"^E" [
 				pos: tail pos
 				col: line/width
 			]
@@ -142,6 +131,7 @@ line-editor: context [
 				if tail? pos [prev-col: col]
 			]
 		]
+		time: stats/timer
 		flush
 	]
 	on-enter: does [
@@ -149,16 +139,14 @@ line-editor: context [
 			prin ajoin [unless multiline [clear-line] clear-newline prompt]
 			exit
 		]
-		unless same? line history/1 [
+		if line != first history: head history [
 			insert history copy line
-			history-pos: 0
 		]
 		on-line
 	]
 	on-line: does [
 		result: try [transcode code: line]
 		prin clear-newline
-		;if multiline [ reset-multiline ]
 		code: bind/new/set result eval-ctx
 		code: bind code system/contexts/lib
 		set/any 'result try/all [
@@ -169,32 +157,39 @@ line-editor: context [
 			on-quit
 			break
 		]
-		on-result :result
+		on-result
 	]
-	on-result: does [
+	on-result: func[/local molded] [
 		pos: clear line
 		col: prev-col: 0
+		set/any 'system/state/last-result :result
 		case [
-			unset? :result [] ;; ignore
+			find system/options/result-types type? :result [
+				molded: mold/part :result result-limit + 1
+				if molded/length > result-limit [ append trim/tail molded "^[[m…" ]
+				emit [ansi/green "== " ansi/bright-green molded LF LF]
+			]
 			error? :result [
+				;; ignore stack values after first `catch`
+				if block? select :result 'where [clear find result/where 'catch]
+				;; output each line...
 				foreach line split-lines form :result [
-					emit as-purple line
-					emit LF
+					emit [ansi/error line LF]
 				]
 				emit LF
 			]
-			'else [emit [as-green "== " mold :result LF]]
+			unset? :result [] ; ignored
 		]
 		unset 'result
 		emit [clear-line prompt]
 		flush
 	]
 	on-escape: does [
-		;if multiline [ reset-multiline append line " " ]
 		unless empty? line [
-			emit [clear-newline as-purple"(escape)" LF prompt]
-			on-result #(unset)
-			;reset-tab
+			hide-status
+			emit [LF ansi/magenta "(escape)" ansi/reset LF prompt]
+			unset 'result
+			on-result
 		]
 	]
 	on-tab: does [
@@ -203,7 +198,7 @@ line-editor: context [
 		if tail? pos [prev-col: col]
 	]
 	on-quit: does [
-		emit [clear-line as-purple"(quit)"]
+		emit [clear-line ansi/magenta  "(quit)" ansi/reset LF]
 		flush
 	]
 
@@ -250,6 +245,13 @@ line-editor: context [
 			pos: next pos
 		]
 	]
+	remove-back: func[n][
+		loop n [
+			if head? pos [break]
+			col: col - pos/-1/width
+			pos: remove back pos
+		]
+	]
 	flush: does [
 		;; Move cursor only if really changed its position.
 		if prev-col != col [skip-to col]
@@ -259,7 +261,11 @@ line-editor: context [
 	;---- Constants ----
 	clear-line:      "^M^[[K"            ;; go to line start, clear to its end
 	clear-newline:   "^/^[[K"            ;; go to new line and clear it (removes optional status line)
-	clear-next-line: "^[[1B^[[2K^[[1A"
+	;clear-next-line: "^[[1B^[[2K^[[1A"
+	clear-down:      "^[[J"
+	clear-to-pos:    "^[[1K"             ;; erase from start of line to cursor.
+	clear-screen:    "^[[H^[[2J"
+	clear-buffer:    "^[[3J"
 	save-cur:        "^[[s"              ;= tui [save]
 	restore-cur:     "^[[u"              ;= tui [restore]
 	move-up:         "^[[1A"             ;= tui [up]
@@ -267,6 +273,8 @@ line-editor: context [
 	move-start:      "^M"                ;= tui [col 0]  
 	highlight:       "^[[7m"             ;= tui [invert]
 	reset-style:     "^[[0m"             ;= tui [reset]
+	next-line:       "^/^[[J"
+	beep:            #"^G"
 
 	delimiters: charset { /%[({})];:"}
 
@@ -277,5 +285,29 @@ line-editor: context [
 	reset-multiline: does [
 		multiline: none
 		prompt: ml-prompt
+	]
+
+	;-- Status line ---
+	status?: off
+	show-status: func [type [word!] txt][
+		status?: type
+		;; limit output to max line width...
+		;@@TODO: this code is not correct as it counts also ANSI codes!
+		;max-cols: query system/ports/output 'window-cols 
+		;unless string? txt [txt: reform txt]
+		;if txt/width >= max-cols [ 
+		;	clear skip txt max-cols - 2
+		;	append txt "…^[[m"
+		;]
+		prin ajoin [
+			LF clear-down txt move-up "^[[" (prompt-width + col + 1) #"G"
+		]
+	]
+
+	hide-status: does [
+		if status? [
+			status?: off
+			prin "^[[1B^[[1K^[[J^[[1A" ;= move-down, clear-to-pos, clear-down, move-up
+		]
 	]
 ]
