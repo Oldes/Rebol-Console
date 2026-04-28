@@ -12,18 +12,28 @@ completion!: context [
 	matches:      []  ;; current matches (using index as a position!)
 	count:        0   ;; total number of matches
 	status-line:  ""  ;; holds possible matches as a trimed line
-	user-context: context []
 
 	reset: does [
 		count: 0 suffix: last-input: kind: _
 		clear head matches
 		clear status-line
 	]
+
+	accept: func [/local pos] [
+		;; Move accepted match to tail so it's served first next time.
+		if all [
+			kind = 'word
+			pos: find/last words matches/1
+		][
+			append words take pos
+		]
+		reset
+	]
 	
 	complete: func [
 		;; Input completion function.
 		input     [string! ] ;; Current line to be completed
-		/local files dir
+		/local files dir n
 	][
 		if last-input = input [exit]
 		count: 0 suffix: _
@@ -68,17 +78,28 @@ completion!: context [
 			]
 			not empty? partial [ ; Word completion
 				kind: 'word
-				if any [
-					lib-size != length? system/contexts/lib
-					(length? user-context) <> user-size
-				][
-					cache-words
-				]
-
-				foreach word cached-words [
-					if parse word [ partial to end ][
-						append matches word
+				n: length? words
+				if lib-size < length? lib-context [
+					foreach word reverse skip words-of lib-context lib-size [
+						append words form word
 					]
+					lib-size: length? lib-context
+				]
+				if user-size < length? user-context [
+					foreach word reverse skip words-of user-context user-size [
+						append words form word
+					]
+					user-size: length? user-context
+				]
+				if n < length? words [ words: unique words ]
+
+				;; Collect from tail (new words will be served first)
+				n: length? words
+				while [n > 0] [
+					if parse words/:n [ partial to end ][
+						append matches words/:n
+					]
+					-- n
 				]
 			]
 			'else [last-input: kind: none exit]
@@ -130,31 +151,20 @@ completion!: context [
 	]
 
 	;- private --
-	partial:      _   ;; the partial word being completed (the fragment after the last space)
-	suffix:       _   ;; the currently inserted completion suffix (the part appended after partial)
-	last-input:   _   ;; used to detect whether the input has changed since the last TAB press
-	kind:         _   ;; the completion type: word / path / file
-	cached-words: _   ;; collected words for possible completion
-	lib-size:     _   ;; number of words in the lib context
-	user-size:    _   ;; number of words in the user context
-
-	cache-words: func [][
-		lib-size:  length? system/contexts/lib
-		user-size: length? user-context
-		cached-words: form-all sort union words-of system/contexts/lib words-of user-context
-	]
+	partial:    _   ;; the partial word being completed (the fragment after the last space)
+	suffix:     _   ;; the currently inserted completion suffix (the part appended after partial)
+	last-input: _   ;; used to detect whether the input has changed since the last TAB press
+	kind:       _   ;; the completion type: word / path / file
+	words: copy []  ;; collected words for possible completion
+	lib-size:   0   ;; number of collected words from the lib context
+	user-size:  0   ;; number of collected words from the user context
+	lib-context: system/contexts/lib
+	user-context: context []
 
 	;; Object/function completion support
 
 	collect-refs: function [fn [any-function!]][
 		parse spec-of :fn [ collect any [to refinement! set x: skip keep (form x)] ]
-	]
-
-	form-all: func [
-		"Convert block of words to block of strings"
-		block [block!]
-	][
-		head forall block [change block form block/1]
 	]
 
 	filter-matches: function [

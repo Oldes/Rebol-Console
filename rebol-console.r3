@@ -42,7 +42,9 @@ rebol-console/with [
 			unless find [tab backtab #"^-"] key [
 				if status? == 'tab [
 					hide-status
-					completion/reset
+					either find [#" " #":" #"^M" right] key [
+						completion/accept
+					][	completion/reset ]
 				]
 			]
 		][
@@ -74,7 +76,7 @@ rebol-console/with [
 				either completion/count == 1 [
 					;; direct hit - append and forget
 					append append pos completion/suffix SP
-					completion/reset
+					completion/accept
 				][	;; display multiple posibilities in the status line
 					show-status 'tab completion/status-line
 					append pos completion/suffix
@@ -85,7 +87,7 @@ rebol-console/with [
 		]
 	]
 	on-line: does [
-		completion/reset
+		completion/accept
 		if status? [hide-status]
 
 		either multiline [
