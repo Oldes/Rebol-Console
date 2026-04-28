@@ -186,10 +186,10 @@ line-editor!: context [
 	]
 	on-escape: does [
 		unless empty? line [
+			pos: clear line
+			col: prev-col: 0
 			hide-status
-			emit [LF ansi/magenta "(escape)" ansi/reset LF prompt]
-			unset 'result
-			on-result
+			emit [clear-line prompt]
 		]
 	]
 	on-tab: does [
