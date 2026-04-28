@@ -167,6 +167,8 @@ completion!: context [
 		parse spec-of :fn [ collect any [to refinement! set x: skip keep (form x)] ]
 	]
 
+	form-all: func[blk [block!]][ forall blk [change blk form blk/1] ]
+
 	filter-matches: function [
 		"From block of strings, return only those matching pattern"
 		block   [block!]
