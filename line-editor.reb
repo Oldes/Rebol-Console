@@ -300,7 +300,7 @@ line-editor!: context [
 		;	append txt "…^[[m"
 		;]
 		prin ajoin [
-			LF clear-down txt move-up "^[[" (prompt-width + col + 1) #"G"
+			LF clear-down ansi/gray txt ansi/reset move-up "^[[" (prompt-width + col + 1) #"G"
 		]
 	]
 
