@@ -42,7 +42,7 @@ rebol-console/with [
 			unless find [tab backtab #"^-"] key [
 				if status? == 'tab [
 					hide-status
-					either find [#" " #":" #"^M" right] key [
+					either find [#" " #":" right] key [
 						completion/accept
 					][	completion/reset ]
 				]
@@ -54,15 +54,15 @@ rebol-console/with [
 		]
 	]
 	on-tab: does [
-		;; completion only if key-time is high
-		either 0:0:0.001 > (stats/timer - time) [
-		;@@ this is not reliable! When user holds TAB key, the time would be also low
-		;	pos: insert pos "   "
-		;	emit at pos -2
-		;	col: col + 2
-		;	if tail? pos [prev-col: col]
+		;; If line is empty or contains only spaces, treat TAB as 2 spaces.
+		either parse line [any SP end] [
+			pos: insert pos "  "
+			emit at pos -2
+			col: col + 2
+			if tail? pos [prev-col: col]
 		][
-			if all [tail? pos not empty? line] [
+			;; Completion only at line tail.
+			if tail? pos [
 				;; remove existing tab completion
 				if completion/suffix [
 					remove-back completion/suffix/length
