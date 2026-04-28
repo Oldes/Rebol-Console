@@ -29,7 +29,7 @@ line-editor!: context [
 	]
 
 	;-- Main callbacks ---
-	on-key: func[key][
+	on-key: func[key /local tmp][
 		current-key: key
 		prev-col: col
 		clear buffer

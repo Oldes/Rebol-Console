@@ -23,7 +23,7 @@ completion!: context [
 	complete: func [
 		;; Input completion function.
 		input     [string! ] ;; Current line to be completed
-		/local files
+		/local files dir
 	][
 		if last-input = input [exit]
 		count: 0 suffix: _
@@ -38,13 +38,16 @@ completion!: context [
 			partial/1 == #"%" [ ; File completion
 				kind: 'file
 				partial: next partial
-				files: sort read first split-path as file! partial
 				either empty? partial [
+					files: read %.
 					forall files [
-						append matches as string! enhex as file! files/1
+						append matches as string! enhex files/1
 					]
 				][
+					unless dir? dir: as file! partial [ dir: first split-path dir ]
+					unless files: attempt [read dir][ exit ]
 					foreach file files [
+						file: dir/:file
 						if apply :parse [
 							file [partial to end]
 							system/platform != 'Windows ;; Case-sensitive on Posix!
