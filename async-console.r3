@@ -13,7 +13,7 @@ Rebol [
     Needs:   3.21.16
 ]
 
-import %line-editor.reb
+import %repl-line-editor.reb
 
 async-console: function [
 	/with spec [block!]

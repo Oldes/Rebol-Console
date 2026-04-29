@@ -5,7 +5,7 @@ Rebol [
     Needs:   3.21.16
 ]
 
-import %line-editor.reb
+import %repl-line-editor.reb
 
 mini-console: function [/with spec [block!]][
 	editor: make line-editor! spec
