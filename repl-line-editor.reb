@@ -18,7 +18,7 @@ line-editor!: context [
 	prev-col: col: 0
 	history: clear []
 	current-key: _
-	eval-ctx: context []
+	console-ctx: context []
 	ansi: system/options/ansi
 
 	init: func [][
@@ -152,11 +152,11 @@ line-editor!: context [
 			;; It's an error from transcode, no need to show the stack!
 			unset in :result 'where
 		][
-			code: bind/new/set :result eval-ctx
-			code: bind code system/contexts/lib
-			set/any 'result try/all [
-				catch/quit code
-			]
+			code: bind result system/contexts/lib  ;; core values
+			code: bind code system/contexts/user   ;; e.g. values from startup scripts
+			code: bind/set code console-ctx        ;; per console session values
+			;; Evaluate code with protection from all errors and quit.
+			set/any 'result try/all [ catch/quit code ]
 			if system/state/quit? [
 				system/state/quit?: false ;; quit only from this console
 				on-quit

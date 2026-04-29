@@ -86,7 +86,7 @@ default-spec: [
 		ajoin [ansi/magenta dir "^[[1;31m>^[[m "]
 	]
 	completion: make completion! []
-	eval-ctx: completion/user-context: system/contexts/user
+	console-ctx: completion/user-context
 
 	on-edit-key:    :on-key
 	on-edit-escape: :on-escape
@@ -166,11 +166,11 @@ default-spec: [
 		][
 			prin next-line
 			if multiline [ reset-multiline ]
-			code: bind/new/set result eval-ctx
-			code: bind code system/contexts/lib
-			set/any 'result try/all [
-				catch/quit code
-			]
+			code: bind result system/contexts/lib  ;; core values
+			code: bind code system/contexts/user   ;; e.g. values from startup scripts
+			code: bind/set code console-ctx        ;; per console session values
+			;; Evaluate code with protection from all errors and quit.
+			set/any 'result try/all [ catch/quit code ]
 			if system/state/quit? [
 				system/state/quit?: false ;; quit only from this console
 				on-quit
