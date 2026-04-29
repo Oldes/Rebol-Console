@@ -1,5 +1,6 @@
 [![rebol-console](https://github.com/user-attachments/assets/fa6f3881-d239-4591-a7ea-6000b143cc06)](https://github.com/Oldes/Rebol-Console)
 [![Gitter](https://badges.gitter.im/rebol3/community.svg)](https://app.gitter.im/#/room/#Rebol3:gitter.im)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Oldes/Rebol-Console)
 
 # Rebol Console
 
@@ -7,7 +8,7 @@ A custom interactive REPL for [Rebol3](https://github.com/Oldes/Rebol3), built e
 
 ## Requirements
 
-Rebol 3.21.12 or later.
+Rebol 3.21.16 or later.
 
 ## Known Limitations / Todo
 
