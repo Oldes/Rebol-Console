@@ -5,6 +5,12 @@ Rebol [
     Needs:   3.21.16
 ]
 
+;; Remove possible existing REPL components
+try [system/modules/line-editor: none]
+try [unset in lib 'line-editor!]
+try [unset 'line-editor!]
+
+;; Import the local one
 import %repl-line-editor.reb
 
 mini-console: function [/with spec [block!]][

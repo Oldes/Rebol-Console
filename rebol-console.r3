@@ -13,11 +13,13 @@ try [system/modules/line-editor: none]
 try [unset in lib 'rebol-console]
 try [unset in lib 'line-editor!]
 try [unset in lib 'completion!]
+try [unset 'rebol-console]
 
-;; Import new one
+;; Import the local one
 import %repl-line-editor.reb
 import %repl-completion.reb
 import %repl-rebol-console.reb
 
+print "^/^[[7mHello from the TEST Rebol console!^[[27m^/"
 rebol-console
 
