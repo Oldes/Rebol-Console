@@ -9,8 +9,8 @@ Rebol [
 		* When using paste in this console, it processes all input as key presses, which is slow.
 		* Doesn't catch CTRL+C.
 	}
-	Version: 0.1.0
-    Needs:   3.21.16
+	Version: 0.2.0
+    Needs:   3.21.18
 ]
 
 ;; Remove possible existing REPL components
@@ -24,6 +24,7 @@ import %repl-line-editor.reb
 async-console: function [
 	/with spec [block!]
 ][
+	unless tty? [exit] ;; start console only if input is available!
 	editor: make line-editor! spec
 	editor/init
 

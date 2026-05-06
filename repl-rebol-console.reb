@@ -1,9 +1,9 @@
 Rebol [
 	Title:   "Rebol Console"
 	Purpose: {Rebol Console with multiline input and TAB completion}
-	Version: 0.2.0
-	Date:    29-Apr-2026
-	Needs:   3.21.16
+	Version: 0.3.0
+	Date:    6-May-2026
+	Needs:   3.21.18
 	type:    module
 	name:    rebol-console
 	exports: [rebol-console]
@@ -16,6 +16,7 @@ rebol-console: function [
 	/with "Customize the console by overriding line-editor! defaults."
 	 spec [block!]
 ][
+	unless tty? [exit] ;; start console only if input is available!
 	editor: make line-editor! any [spec default-spec]
 	editor/init
 	forever [ editor/on-key read-key ]

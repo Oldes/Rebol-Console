@@ -5,7 +5,7 @@ Rebol [
 	Type:    module
 	Version: 0.3.0
 	Date:    6-May-2026
-	Needs:   3.21.16
+	Needs:   3.21.18
 	exports: [line-editor!]
 ]
 
@@ -13,7 +13,7 @@ line-editor!: context [
 	prompt: "^[[1;31m## ^[[1;33m"
 	result-limit: 500 ;; max length of the molded result output
 	buffer: copy ""
-	line: pos: result: code: banner: _
+	line: pos: result: code: banner: parent-console: _
 	time: 0:0
 	prev-col: col: 0
 	history: clear []
@@ -25,6 +25,11 @@ line-editor!: context [
 		clear buffer
 		line: pos: clear ""
 		prev-col: col: 0
+		parent-console: system/console/current
+		if none? parent-console [
+			try [append history load system/options/data/.repl-history]
+		]
+		system/console/current: context? 'parent-console
 		if string? :banner [print banner]
 		prin prompt
 	]
@@ -70,6 +75,7 @@ line-editor!: context [
 			]
 			#"^C" [
 				print ajoin [clear-newline ansi/magenta "(CTRL+C)"]
+				on-exit
 				break
 			]
 			#"^U" [ ;= CTRL+U - clear line
@@ -204,9 +210,20 @@ line-editor!: context [
 		col: col + 4
 		if tail? pos [prev-col: col]
 	]
+	on-exit: does [
+		system/console/current: parent-console
+		;; save only root console's history
+		if none? parent-console [ try [save-history] ]
+		()
+	]
 	on-quit: does [
 		emit [clear-line ansi/magenta  "(quit)" ansi/reset LF]
 		flush
+		on-exit
+	]
+	save-history: does [
+		parse history [any ["q" | "quit"] history:] ;; don't include `quit` commands
+		save system/options/data/.repl-history new-line/all history true
 	]
 
 	;-- Private editor functions ---
@@ -266,7 +283,7 @@ line-editor!: context [
 	]		
 
 	;---- Constants ----
-	clear-line:      "^M^[[K"            ;; go to line start, clear to its end
+	clear-line:      "^M^[[K^[[0m"       ;; go to line start, clear to its end, reset
 	clear-newline:   "^/^[[K"            ;; go to new line and clear it (removes optional status line)
 	;clear-next-line: "^[[1B^[[2K^[[1A"
 	clear-down:      "^[[J"
