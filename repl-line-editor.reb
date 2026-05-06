@@ -3,8 +3,8 @@ Rebol [
 	Purpose: {Reusable line editor}
 	Name:    line-editor
 	Type:    module
-	Version: 0.2.0
-	Date:    29-Apr-2026
+	Version: 0.3.0
+	Date:    6-May-2026
 	Needs:   3.21.16
 	exports: [line-editor!]
 ]
@@ -78,6 +78,7 @@ line-editor!: context [
 				emit [clear-line prompt]
 			]
 			#"^L" [ ;= CTRL-L - clear screen
+				pos: clear line
 				col: prev-col: 0
 				emit [clear-screen clear-buffer prompt]
 			]
